@@ -15,6 +15,7 @@ const double transmition[] = {49320, 24660, 16440, 12330, 19720, 8220};
 const double maxSpeed[] = {5.55, 11.11, 16.67, 22.22, 27.78, 33.33};
 double lastSpeed = 0;
 int gear = 0;
+int ignition = 0;
 const double weight = 328800; // N
 const int maxGear = 5;
 bool lastStateGearUp = false;   // last buttons states
@@ -44,10 +45,34 @@ bool lastStateGearDown = false; // ^
 DHT dht(DHTPIN, DHTTYPE);
 
 BlynkTimer timer;
+BlynkTimer::Handle cutIgnition;
 
+void ignitionHandler()
+{
+  ignition = 0;
+}
 // This function is called every time the Virtual Pin 0 state changes
 BLYNK_WRITE(V0)
 {
+  int value = param.asInt();
+  Serial.println(value);
+  if (value)
+  {
+    if (cutIgnition.isEnabled())
+    {
+      cutIgnition.disable();
+    }
+    cutIgnition = timer.setTimeout(5e3L, ignitionHandler);
+  }
+  else
+  {
+    if (cutIgnition.isEnabled())
+    {
+      cutIgnition.disable();
+    }
+    ignition = 1;
+  }
+  digitalWrite(2, value);
 }
 
 // This function is called every time the device is connected to the Blynk.Cloud
@@ -68,13 +93,16 @@ void myTimerEvent()
   Serial.println(accelaration);
 
   lastSpeed = lastSpeed + accelaration;
-  if(lastSpeed > maxSpeed[gear]){
+  if (lastSpeed > maxSpeed[gear])
+  {
     lastSpeed = maxSpeed[gear];
   }
-  else if(lastSpeed < 0){
+  else if (lastSpeed < 0)
+  {
     lastSpeed = 0;
   }
-  double consumo = lastSpeed / (maxLitersPerSercond * (accelerationPercent / 100.0));
+  double consumo = ignition != 0 && (accelerationPercent > 0 || lastSpeed == 0) ? lastSpeed / (maxLitersPerSercond * (accelerationPercent / 100.0))
+                                                                                : 30000;
   Blynk.virtualWrite(V2, consumo / 1000);
   Blynk.virtualWrite(V1, lastSpeed * 3.6);
   Blynk.virtualWrite(V3, temperature);
@@ -105,7 +133,11 @@ void update_gears()
 void setup()
 {
   // Debug console
+  cutIgnition = timer.setTimeout(5e3L, []()
+                                 { ignition = 0; });
+  cutIgnition.disable();
   Serial.begin(9600);
+  pinMode(2, OUTPUT);
   pinMode(DIPLAY_A, OUTPUT);
   pinMode(DIPLAY_B, OUTPUT);
   pinMode(DIPLAY_C, OUTPUT);
@@ -120,6 +152,8 @@ void setup()
   timer.setInterval(1000L, myTimerEvent);
   timer.setInterval(100L, update_gears);
   update_gear_diplay();
+  Blynk.connect();
+  Blynk.syncVirtual(V0);
 }
 void loop()
 {
@@ -153,33 +187,47 @@ double getAccelaration(double currentSpeed, double percentAccelaration)
   const double p = 1.077;               // kg/m3
   const double truckArea = 2.44 * 4.11; // m2
   const double c = 0.65;
-  double friction = 0.0041 + (0.0000041 * ((currentSpeed / 3.6) / 1.60934));
-  double da = p * currentSpeed * currentSpeed * truckArea * c; // da -> N arrasto
+  double friction = 0.0041 + (0.0000041 * (currentSpeed / 1.60934));
+  double da = 0.5 * p * currentSpeed * currentSpeed * truckArea * c; // da -> N arrasto
   double rx = friction * weight;                                     // rx -> N resistencia a rolagem
   double totaOfResistant = da + rx;
   double maxGearSpeed = maxSpeed[gear];
   double maxAcceleration = (transmition[gear] * percentAccelaration);
   double percentSpeed = currentSpeed / maxGearSpeed;
   double accelarationFactor = 0;
-  if (percentSpeed < 0.325) {
-        accelarationFactor = 0.1 + (percentSpeed / 0.325) * 0.9;
-    } else if (percentSpeed <= 0.625) {
-        accelarationFactor = 1.0;
-    } else if (percentSpeed <= 1.0) {
-        accelarationFactor = 1.0 - ((percentSpeed - 0.625) / 0.375) * 0.5;
-    } else {
-        accelarationFactor = 0;
-    }
-  double accelaration = maxAcceleration * accelarationFactor;
+  if (percentAccelaration <= 0 || ignition == 0)
+  {
+    accelarationFactor = -0.5;
+  }
+  else if (percentSpeed < 0.325)
+  {
+    accelarationFactor = 0.1 + (percentSpeed / 0.325) * 0.9;
+  }
+  else if (percentSpeed <= 0.625)
+  {
+    accelarationFactor = 1.0;
+  }
+  else if (percentSpeed <= 1.0)
+  {
+    accelarationFactor = 1.0 - ((percentSpeed - 0.625) / 0.375) * 0.5;
+  }
+  else
+  {
+    accelarationFactor = 0;
+  }
+  double accelaration = percentAccelaration > 0 ? maxAcceleration * accelarationFactor
+                                                : transmition[gear] * accelarationFactor;
+  Serial.print("speed: ");
+  Serial.println(currentSpeed);
+  Serial.print("air fricction: ");
+  Serial.println(da);
   Serial.print("resistant: ");
   Serial.println(totaOfResistant);
-  Serial.print("percentSpeed: ");
-  Serial.println(percentSpeed);
   Serial.print("accelarationFactor: ");
   Serial.println(accelarationFactor);
   Serial.print("MaxAccelaration: ");
   Serial.println(maxAcceleration);
   Serial.print("accelaration: ");
   Serial.println(accelaration);
-  return ( accelaration - totaOfResistant) / (weight / 9.8);
+  return (accelaration - totaOfResistant) / (weight / 9.8);
 }
