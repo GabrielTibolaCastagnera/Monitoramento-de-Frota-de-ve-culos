@@ -1,26 +1,91 @@
-/*************************************************************
-
-  This is a simple demo of sending and receiving some data.
-  Be sure to check out other examples!
- *************************************************************/
-
-/* Fill-in information from Blynk Device Info here */
+/*  Trabalho Final Internet Of Things - Junho 2024
+    Professor Marcelo Trindade Rebonatto
+    
+    Monitoramento de Frota de Veículos
+    Autores:
+      Enzo Zavorski Delevatti
+      Gabriel Tibola Castagnera
+      Juan Pinto Loureiro
+*/
 #define BLYNK_TEMPLATE_ID "TMPL2ATdqFknC"
 #define BLYNK_TEMPLATE_NAME "Quickstart Template"
 #define BLYNK_AUTH_TOKEN "8COhjnKC4gM9OFqMbZN6-ZnAF0HAXn6H"
+
+/**
+ * @brief Atualiza o diplay com a marcha selecionada
+ * 
+ */
 void update_gear_diplay();
+
+/**
+ * @brief Função que retorna a aceleração atual do veículo, levando em conta a marcha, 
+ * velocidade atual, quando está pisando no acelerador
+ * 
+ * @param currentSpeed 
+ * @param percentAccelaration 
+ * @return double 
+ */
 double getAccelaration(double currentSpeed, double percentAccelaration);
+
+/**
+ * @brief máximo de fluxo de combustível da bomba em Litros / segundo
+ * 
+ */
 const double maxLitersPerSercond = 0.0125;
+
+/**
+ * @brief aceleração máxima em Newtons (Kg*m/s^2) para cada marcha
+ * 
+ */
 const double transmition[] = {49320, 24660, 16440, 12330, 19720, 8220};
+/**
+ * @brief máxima velocidade para cada marcha em m/s
+ * 
+ */
 const double maxSpeed[] = {5.55, 11.11, 16.67, 22.22, 27.78, 33.33};
+
+/**
+ * @brief última velocidade registrada
+ * 
+ */
 double lastSpeed = 0;
+
+/**
+ * @brief marcha atual
+ * 
+ */
 int gear = 0;
+
+/**
+ * @brief indica se a ignição está ativa ou não
+ * 
+ */
 int ignition = 0;
+
+/**
+ * @brief Peso do veículo em Newtons
+ * 
+ */
 const double weight = 328800; // N
+
+/**
+ * @brief índice da marcha mais pesada
+ * 
+ */
 const int maxGear = 5;
+
+/**
+ * @brief informa o último estado do botão de subir marcha
+ * 
+ */
 bool lastStateGearUp = false;   // last buttons states
-bool lastStateGearDown = false; // ^
-/* Comment this out to disable prints and save space */
+
+/**
+ * @brief informa o último estado do botão de descer marcha
+ * 
+ */
+bool lastStateGearDown = false;
+
 #define BLYNK_PRINT Serial
 
 #include <WiFi.h>
@@ -29,7 +94,12 @@ bool lastStateGearDown = false; // ^
 #include <BlynkSimpleEsp32.h>
 #include "DHT.h"
 #include "wifi_password.hpp"
+/**
+ * @brief Pino do sensor de Temperatura
+ * 
+ */
 #define DHTPIN 4
+//Mapeamento das saidas dos LEDs do diplay de 7 segmentos
 #define DIPLAY_A 26
 #define DIPLAY_B 32
 #define DIPLAY_C 13
@@ -37,31 +107,59 @@ bool lastStateGearDown = false; // ^
 #define DIPLAY_E 14
 #define DIPLAY_F 25
 #define DIPLAY_G 33
+
+/**
+ * @brief Pino do Acelerador
+ * 
+ */
 #define ACCELERATIONPIN 35
+
+/**
+ * @brief Pino do botão para subir marcha
+ * 
+ */
 #define GEAR_UP 22
+
+/**
+ * @brief Pino do botão para descer marcha
+ * 
+ */
 #define GEAR_DOWN 23
 
 #define DHTTYPE DHT11
 DHT dht(DHTPIN, DHTTYPE);
-
 BlynkTimer timer;
+
+/**
+ * @brief Handler do evento para cortar a ignição
+ * 
+ */
 BlynkTimer::Handle cutIgnition;
 
+/**
+ * @brief função para cortar a ignição
+ * 
+ */
 void ignitionHandler()
 {
   ignition = 0;
 }
-// This function is called every time the Virtual Pin 0 state changes
+
+/**
+ * @brief Handler para saber se foi enviado um evento para cortar a ignição
+ * 
+ */
 BLYNK_WRITE(V0)
 {
   int value = param.asInt();
-  Serial.println(value);
+  //trata se foi dado o comando de cortar ignição
   if (value)
   {
     if (cutIgnition.isEnabled())
     {
       cutIgnition.disable();
     }
+    // corta a ignição após um intervalo de 5 segundos
     cutIgnition = timer.setTimeout(5e3L, ignitionHandler);
   }
   else
@@ -70,29 +168,29 @@ BLYNK_WRITE(V0)
     {
       cutIgnition.disable();
     }
+    //retoma a ignição
     ignition = 1;
   }
+  //aciona a lâmpada caso a ignição será cortada
   digitalWrite(2, value);
 }
-
-// This function is called every time the device is connected to the Blynk.Cloud
-BLYNK_CONNECTED()
-{
-}
-int state = LOW;
-// This function sends Arduino's uptime every second to Virtual Pin 2.
+/**
+ * @brief Atualiza a velocidade, temperatura e consumo a cada segundo
+ * 
+ */
 void myTimerEvent()
 {
-  // You can send any value at any time.
-  // Please don't send more that 10 values per second.
+  //Ganho na leitura para simular uma temperatura mais real de um motor
   double temperature = map(dht.readTemperature(), 0, 40, 70, 120);
-
+  //Quanto está sendo pisado no acelerador de 0 a 100%
   double accelerationPercent = map(analogRead(ACCELERATIONPIN), 0, 4095, 0, 100);
+  //Consulta a aceleração
   double accelaration = getAccelaration(lastSpeed, accelerationPercent / 100.0);
   Serial.print("final accelaration: ");
   Serial.println(accelaration);
 
   lastSpeed = lastSpeed + accelaration;
+  //limita a velocidade entre 0 e o máximo da marcha
   if (lastSpeed > maxSpeed[gear])
   {
     lastSpeed = maxSpeed[gear];
@@ -101,13 +199,20 @@ void myTimerEvent()
   {
     lastSpeed = 0;
   }
+  //cálculo de consumo. Se a ignição estiver cortada ou o veículo estiver em movimento e sem acelerar, o consumo será infito, mas limitado em 30 km/L 
+  //Caso contrário, dividir a última velocidade (m/s) pelo fluxo atual de combustível (L/s) tem como resultado o consumo em m/L
   double consumo = ignition != 0 && (accelerationPercent > 0 || lastSpeed == 0) ? lastSpeed / (maxLitersPerSercond * (accelerationPercent / 100.0))
                                                                                 : 30000;
+  // Atualiza os pinos Virtuais
   Blynk.virtualWrite(V2, consumo / 1000);
   Blynk.virtualWrite(V1, lastSpeed * 3.6);
   Blynk.virtualWrite(V3, temperature);
 }
 
+/**
+ * @brief Atualiza a marcha a cada 100 milisegundos
+ * 
+ */
 void update_gears()
 {
   int gearUp = digitalRead(GEAR_UP);
@@ -150,11 +255,16 @@ void setup()
 
   // Setup a function to be called every second
   timer.setInterval(1000L, myTimerEvent);
+  // Setup a function to be called every 100 milliseconds
   timer.setInterval(100L, update_gears);
+
   update_gear_diplay();
+
   Blynk.connect();
+  //sincroniza a ignição com o comando dado
   Blynk.syncVirtual(V0);
 }
+
 void loop()
 {
   Blynk.run();
@@ -187,14 +297,34 @@ double getAccelaration(double currentSpeed, double percentAccelaration)
   const double p = 1.077;               // kg/m3
   const double truckArea = 2.44 * 4.11; // m2
   const double c = 0.65;
+  
+  //cálculo da força de fricção
   double friction = 0.0041 + (0.0000041 * (currentSpeed / 1.60934));
+
+  //cálculo do arrasto aerodinâmico
   double da = 0.5 * p * currentSpeed * currentSpeed * truckArea * c; // da -> N arrasto
+
+  //cálculo da fricção total com o peso do veículo
   double rx = friction * weight;                                     // rx -> N resistencia a rolagem
+
+  //resistência total
   double totaOfResistant = da + rx;
+  //máxima velocidade da marcha
   double maxGearSpeed = maxSpeed[gear];
+  //máxima aceleração
   double maxAcceleration = (transmition[gear] * percentAccelaration);
+
   double percentSpeed = currentSpeed / maxGearSpeed;
   double accelarationFactor = 0;
+
+  /**
+   * @brief calcula o fator de aceleração na marcha,
+   * levando em consiração a velocidade atual e a marcha,
+   * para calcular em que faixa de eficiência do motor está
+   * e que aceleração pode entregar entre 10 a 100% da aceleração máxima
+   * de acordo com o que está sendo requerido do pedal.
+   * Caso for nada, será uma aceleração negativa, simulando um freio motor
+   */
   if (percentAccelaration <= 0 || ignition == 0)
   {
     accelarationFactor = -0.5;
@@ -215,6 +345,7 @@ double getAccelaration(double currentSpeed, double percentAccelaration)
   {
     accelarationFactor = 0;
   }
+  //aceleração final (N)
   double accelaration = percentAccelaration > 0 ? maxAcceleration * accelarationFactor
                                                 : transmition[gear] * accelarationFactor;
   Serial.print("speed: ");
@@ -229,5 +360,6 @@ double getAccelaration(double currentSpeed, double percentAccelaration)
   Serial.println(maxAcceleration);
   Serial.print("accelaration: ");
   Serial.println(accelaration);
+  // desconta as forças de resistência e divide pela massa do veículo, obtendo a aceleração em m/s^2 
   return (accelaration - totaOfResistant) / (weight / 9.8);
 }
