@@ -200,8 +200,8 @@ void myTimerEvent()
   {
     lastSpeed = 0;
   }
-  if(lastSpeed > 27.5 && !sended_notification){
-    Blynk.logEvent("velocidade_alta", "Velocidade acima de " + String(lastSpeed*3.6) + "Km/h");
+  if(lastSpeed > 27.76 && !sended_notification){
+    Blynk.logEvent("velocidade_alta", "Velocidade acima de 100Km/h");
     sended_notification = 1;
   }
   else{
