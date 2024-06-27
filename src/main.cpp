@@ -174,6 +174,7 @@ BLYNK_WRITE(V0)
   //aciona a lâmpada caso a ignição será cortada
   digitalWrite(2, value);
 }
+int sended_notification = 0;
 /**
  * @brief Atualiza a velocidade, temperatura e consumo a cada segundo
  * 
@@ -198,6 +199,13 @@ void myTimerEvent()
   else if (lastSpeed < 0)
   {
     lastSpeed = 0;
+  }
+  if(lastSpeed > 27.5 && !sended_notification){
+    Blynk.logEvent("velocidade_alta", "Velocidade acima de " + String(lastSpeed*3.6) + "Km/h");
+    sended_notification = 1;
+  }
+  else{
+    sended_notification = 0;
   }
   //cálculo de consumo. Se a ignição estiver cortada ou o veículo estiver em movimento e sem acelerar, o consumo será infito, mas limitado em 30 km/L 
   //Caso contrário, dividir a última velocidade (m/s) pelo fluxo atual de combustível (L/s) tem como resultado o consumo em m/L
